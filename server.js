@@ -1,28 +1,37 @@
 const express = require("express");
 const axios = require("axios");
+const rateLimit = require("express-rate-limit");
+const crypto = require("crypto");
 
 const app = express();
 app.use(express.json());
 
-// ENV değişkenleri (Railway'de girilecek)
+// RATE LIMIT
+app.use(rateLimit({
+  windowMs: 60 * 1000, // 1 dakika
+  max: 30 // max 30 istek
+}));
+
+// ENV
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
+const SECRET = process.env.SECRET;
 
-if (!TELEGRAM_TOKEN || !CHAT_ID) {
-  console.error("ENV eksik!");
+// ENV kontrol
+if (!TELEGRAM_TOKEN || !CHAT_ID || !SECRET) {
+  console.error("ENV eksik! TELEGRAM_TOKEN / CHAT_ID / SECRET");
   process.exit(1);
 }
 
-// basit in-memory cache
+// duplicate kontrol
 let lastHash = "";
 
+// hash oluştur
 function createHash(text) {
-  return require("crypto")
-    .createHash("md5")
-    .update(text)
-    .digest("hex");
+  return crypto.createHash("md5").update(text).digest("hex");
 }
 
+// etiketleme
 function getTag(text) {
   const t = text.toLowerCase();
 
@@ -34,8 +43,15 @@ function getTag(text) {
   return "📢 UPDATE";
 }
 
+// WEBHOOK
 app.post("/webhook", async (req, res) => {
   try {
+    // SECRET kontrol
+    const incoming = req.headers["x-secret"];
+    if (incoming !== SECRET) {
+      return res.sendStatus(403);
+    }
+
     const text = req.body?.text || "";
     const title = req.body?.title || "Update";
     const url = req.body?.url || "";
@@ -73,6 +89,7 @@ ${text.substring(0, 800)}
     );
 
     res.sendStatus(200);
+
   } catch (err) {
     console.error("ERROR:", err.message);
     res.sendStatus(500);
